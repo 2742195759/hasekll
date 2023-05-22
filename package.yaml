@@ -35,6 +35,8 @@ ghc-options:
 
 library:
   source-dirs: src
+  dependencies:
+  - bytestring==0.11.4.0
 
 executables:
   simple-http-server-exe:
