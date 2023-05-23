@@ -37,6 +37,7 @@ library:
   source-dirs: src
   dependencies:
   - bytestring==0.11.4.0
+  - transformers
 
 executables:
   simple-http-server-exe:
@@ -52,6 +53,7 @@ executables:
     - network-simple
     - bytestring==0.11.4.0
     - conduit
+    - transformers
 
 tests:
   simple-http-server-test:

@@ -2,7 +2,7 @@
 module Buffer
     ( 
       BufferClass, 
-      Pipeline,
+      PipelineT,
       execPipeline,
       resetBuffer,
       readFromSockets, 
@@ -10,12 +10,16 @@ module Buffer
       consumeWithRead, 
       appendBuffer, 
       peekBuffer, 
-      parser
+      parser, 
+      buf_fromString, 
+      buf_contain_nl
     ) where
 
 import qualified Data.ByteString as B
 import Data.String (fromString)
 import Data.Char (ord)
+import Data.Functor.Identity (Identity)
+import Control.Monad.Trans.Class
 
 class BufferClass a where 
     buf_fromString :: String -> a
@@ -43,32 +47,36 @@ instance BufferClass String where
 
 
 type Buffer = String
-newtype Pipeline b a = Pipeline { runPipeline :: b -> (b, a) }
-instance Functor (Pipeline b)
-instance Applicative (Pipeline b)
-instance Monad (Pipeline b) where
-    return x = Pipeline $ \m -> (m, x)
-    (>>=) cx f = Pipeline $ \buf -> 
-                    let (oldbuf, oldvalue) = runPipeline cx buf
-                    in runPipeline (f oldvalue) oldbuf
+newtype PipelineT b m a = PipelineT { runPipelineT :: b -> m (b, a) }
+instance Functor (PipelineT b m)
+instance Applicative (PipelineT b m)
+instance (Monad m) => Monad (PipelineT b m) where
+    return x = PipelineT (\m -> return (m, x))
+    (>>=) mf func = PipelineT $ \buf -> do
+                        (lastb, lasta) <- runPipelineT mf buf
+                        runPipelineT (func lasta) lastb
+    
+instance (BufferClass b) => MonadTrans (PipelineT b) where 
+    lift m = PipelineT $ \t -> do 
+            a <- m 
+            return (t, a)
 
-
-execPipeline :: (BufferClass b) => b -> Pipeline b a -> (b, a)
-execPipeline buf pipe = runPipeline pipe buf
+execPipeline :: (BufferClass b) => PipelineT b m a -> m (b, a)
+execPipeline pipe = runPipelineT pipe $ buf_fromString ""
                     
-resetBuffer :: b -> Pipeline b ()
-resetBuffer x = Pipeline fn where 
-                fn _ = (x, ())
+resetBuffer :: (Monad m) => b -> PipelineT b m ()
+resetBuffer x = PipelineT fn where 
+                fn _ = return (x, ())
 
-readFromSockets :: (BufferClass b) => Pipeline b () 
+readFromSockets :: (BufferClass b, Monad m) => PipelineT b m () 
 readFromSockets = appendBuffer $ buf_fromString "sdfsdf\n"
 
-consumeLine :: (BufferClass b) => Pipeline b b
-consumeLine = Pipeline func where
-                func buf = (buf_tail y, x) where 
+consumeLine :: (BufferClass b, Monad m) => PipelineT b m b
+consumeLine = PipelineT func where
+                func buf = return (buf_tail y, x) where 
                    (x, y) = buf_breakNL buf
 
-consumeWithRead :: (BufferClass b) => Pipeline b b 
+consumeWithRead :: (BufferClass b, Monad m) => PipelineT b m b 
 consumeWithRead = do 
     buf <- peekBuffer 
     if buf_contain_nl buf then consumeLine
@@ -77,16 +85,21 @@ consumeWithRead = do
         consumeLine
 
 
-appendBuffer :: (BufferClass b) => b -> Pipeline b ()
-appendBuffer x = Pipeline fn where 
-                fn buffer = (buf_append buffer x, ())
+appendBuffer :: (BufferClass b, Monad m) => b -> PipelineT b m ()
+appendBuffer x = PipelineT fn where 
+                fn buffer = return (buf_append buffer x, ())
 
 
-peekBuffer :: Pipeline b b
-peekBuffer = Pipeline $ \buf -> 
-                (buf, buf)
+peekBuffer :: (Monad m) => PipelineT b m b
+peekBuffer = PipelineT $ \buf -> 
+                return (buf, buf)
 
-parser :: (BufferClass b) => Pipeline b [b]
+readFromKeyboard :: (BufferClass b) => PipelineT b IO () 
+readFromKeyboard = do 
+    value <- lift $ getLine
+    appendBuffer $ buf_fromString $ value ++ "\n"
+
+parser :: (BufferClass b, Monad m) => PipelineT b m [b]
 parser = do 
     resetBuffer $ buf_fromString "sdfsdfsdf\nsdfsd\n\n"
     appendBuffer $ buf_fromString "xkxkx\n"
