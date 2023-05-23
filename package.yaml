@@ -38,6 +38,7 @@ library:
   dependencies:
   - bytestring==0.11.4.0
   - transformers
+  - split
 
 executables:
   simple-http-server-exe:
