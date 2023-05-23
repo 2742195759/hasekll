@@ -55,6 +55,7 @@ executables:
     - bytestring==0.11.4.0
     - conduit
     - transformers
+    - containers
 
 tests:
   simple-http-server-test:

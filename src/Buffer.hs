@@ -89,7 +89,6 @@ appendBuffer :: (BufferClass b, Monad m) => b -> PipelineT b m ()
 appendBuffer x = PipelineT fn where 
                 fn buffer = return (buf_append buffer x, ())
 
-
 peekBuffer :: (Monad m) => PipelineT b m b
 peekBuffer = PipelineT $ \buf -> 
                 return (buf, buf)

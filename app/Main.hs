@@ -6,6 +6,9 @@ import Buffer (PipelineT, consumeLine, execPipeline, appendBuffer, peekBuffer, b
 import Network.Simple.TCP
 import Control.Monad.Trans.Class
 import Data.ByteString.Internal (c2w)
+import qualified Data.Map.Strict as Map 
+import Control.Exception (throw, Exception)
+import qualified Data.ByteString.Char8 as C8
 
 --- Monad Transformer Learning by practice
 
@@ -21,27 +24,54 @@ socketReadline sock = do
                 socketReadline sock
             _ -> return (fromString "closed"::B.ByteString)
 
-data Headers = Headers { keys :: [B.ByteString], values :: [B.ByteString] } deriving Show
-
-appendHeaders :: Headers -> B.ByteString -> B.ByteString -> Headers
-appendHeaders headers key val = Headers (key:keys headers) (val:values headers)
+type Headers = Map.Map B.ByteString B.ByteString
 
 httpReadHeader :: Socket -> PipelineT B.ByteString IO Headers
 httpReadHeader sock = do 
     line <- socketReadline sock
     if line == (fromString ""::B.ByteString) 
-    then return $ Headers [] []
+    then return $ Map.empty
     else do
         headers <- httpReadHeader sock
         let is_colon x = x == c2w ':'
         let (k, v) = B.break is_colon line
-        return $ appendHeaders headers k v
+        return $ Map.insert k (B.tail v) headers 
+
+httpReadNumber :: Socket -> Int -> PipelineT B.ByteString IO B.ByteString
+httpReadNumber sock num = 
+    if num == 0 then return empty
+    else do
+        buf <- peekBuffer
+        let len = length buf 
+        in if length buf >= num 
+           then do 
+              resetBuffer (C8.takeEnd 
+
+type Content = B.ByteString
+handleFunction :: Headers -> Content -> IO ()
+handleFunction headers content = do 
+    print (headers, content)
+
+byteString2Int :: B.ByteString -> Int
+byteString2Int = read . C8.unpack
+
+data MyException = MyException String deriving Show
+instance Exception MyException 
 
 main :: IO ()
 main = do 
     putStrLn "Start Servering in 10000 port: "
     serve (Host "127.0.0.1") "10000" $ \(connectionSocket, remoteAddr) -> do
         {-maybe_msg <- recv connectionSocket -}
-        (_, headers) <- (execPipeline $ httpReadHeader connectionSocket)::IO (B.ByteString, Headers)
+        (remains, headers) <- (execPipeline $ httpReadHeader connectionSocket)::IO (B.ByteString, Headers)
         putStrLn $ "TCP connection established from " ++ show remoteAddr
-        print headers
+        let maybe_content_length = Map.lookup (fromString "Content-Length"::B.ByteString) headers
+        let content_length = case maybe_content_length of 
+                                Just content -> byteString2Int content
+                                _            -> throw $ MyException "Content-Length Missing."
+        print ("Remain:", remains)
+        print (content_length)
+        maybe_content <- recv connectionSocket content_length
+        case maybe_content of 
+            Just content -> handleFunction headers content
+            _ -> throw $ MyException "content is less than content-length."
