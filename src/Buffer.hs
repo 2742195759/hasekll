@@ -71,7 +71,7 @@ resetBuffer x = PipelineT fn where
 
 consumeLine :: (BufferClass b, Monad m) => PipelineT b m b
 consumeLine = PipelineT func where
-                func buf = return (y, buf_strip x) where 
+                func buf = return (buf_tail y, buf_strip x) where 
                    (x, y) = buf_breakNL buf
 
 appendBuffer :: (BufferClass b, Monad m) => b -> PipelineT b m ()

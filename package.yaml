@@ -62,6 +62,7 @@ executables:
     - conduit
     - transformers
     - containers
+    - directory
 
 tests:
   simple-http-server-test:

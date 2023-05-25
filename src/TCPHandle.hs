@@ -5,7 +5,8 @@ module TCPHandle (
     Content, 
     serverMain,
     getInt,
-    getString
+    getString,
+    TCPHandle
 ) where
 
 import qualified Data.ByteString as B
@@ -43,7 +44,7 @@ httpReadFirstLine sock = do
 httpReadHeader :: Socket -> PipelineT B.ByteString IO Headers
 httpReadHeader sock = do 
     line <- socketReadline sock
-    if line == (fromString ""::B.ByteString) 
+    if line == B.empty
     then return Map.empty
     else do
         headers <- httpReadHeader sock
@@ -100,11 +101,12 @@ getString :: Headers -> B.ByteString -> String
 getString headers name = 
     let x = Map.lookup name headers 
     in case x of 
-        Just x -> C8.unpack x
+        Just x -> C8.unpack $ C8.strip x
         _ -> throw $ AssertionFailed $ "can't found key with " ++ C8.unpack name
 
+type TCPHandle = Headers -> Content -> IO B.ByteString
 
-serverMain :: ServerAddress -> (Headers -> Content -> B.ByteString) -> IO ()
+serverMain :: ServerAddress -> (Headers -> Content -> IO B.ByteString) -> IO ()
 serverMain address handle = do 
     print ("Start Servering in ", port address) 
     serve (Host $ ip address) (port address) $ \(connectionSocket, remoteAddr) -> do
@@ -117,7 +119,7 @@ serverMain address handle = do
         (_, content) <- execPipeline $ do  
             resetBuffer remains
             httpReadNumber connectionSocket content_length
-        let result = handle headers content
+        result <- handle headers content
         let len = C8.length result
         send connectionSocket $ C8.pack "HTTP/1.1 200 OK\n\r"
         send connectionSocket $ C8.pack ("Content-Length: " ++ show len ++ "\n\r\n\r")
