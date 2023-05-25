@@ -63,6 +63,7 @@ executables:
     - transformers
     - containers
     - directory
+    - aeson
 
 tests:
   simple-http-server-test:
