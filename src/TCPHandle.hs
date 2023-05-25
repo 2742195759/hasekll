@@ -4,7 +4,8 @@ module TCPHandle (
     ServerAddress(..), 
     Content, 
     serverMain,
-    getInt
+    getInt,
+    getString
 ) where
 
 import qualified Data.ByteString as B
@@ -16,6 +17,7 @@ import Data.ByteString.Internal (c2w)
 import qualified Data.Map.Strict as Map 
 import Control.Exception (throw, Exception, AssertionFailed(..))
 import qualified Data.ByteString.Char8 as C8
+import Debug.Trace
 
 --- Monad Transformer Learning by practice
 
@@ -24,14 +26,19 @@ socketReadline sock = do
     buf <- peekBuffer 
     if buf_contain_nl buf then consumeLine
     else do 
-         maybe_string <- lift $ recv sock 100
-         case maybe_string of 
-            Just string -> do 
-                appendBuffer   string
-                socketReadline sock
-            _ -> return (fromString "closed"::B.ByteString)
+        string <- lift $ tcpRead sock
+        appendBuffer   string
+        socketReadline sock
 
 type Headers = Map.Map B.ByteString B.ByteString
+
+httpReadFirstLine :: Socket -> PipelineT B.ByteString IO Headers
+httpReadFirstLine sock = do 
+    line <- socketReadline sock
+    let is_space x = x == c2w ' '
+    let (method, remain) = B.break is_space line
+    let (host, protocal) = B.break is_space (B.tail remain)
+    return (Map.fromList [("method",method), ("host", host), ("protocal", protocal)]:: Headers)
 
 httpReadHeader :: Socket -> PipelineT B.ByteString IO Headers
 httpReadHeader sock = do 
@@ -59,9 +66,17 @@ httpReadNumber sock num =
             appendBuffer   string
             httpReadNumber sock num
 
+
+httpParserRequest  :: Socket -> PipelineT B.ByteString IO Headers
+httpParserRequest sock = do 
+    headers1 <- httpReadFirstLine sock
+    headers2 <- httpReadHeader sock
+    return $ Map.union headers1 headers2
+
+
 tcpRead :: Socket -> IO B.ByteString
 tcpRead sock = do 
-    maybe_string <- recv sock 100 
+    maybe_string <- recv sock 1000
     case maybe_string of
         Just string -> return string
         _ -> throw $ MyException "unexpected closed."
@@ -78,27 +93,32 @@ data ServerAddress = ServerAddress { ip::String, port::String }
 
 
 getInt :: Headers -> B.ByteString -> Int
-getInt headers name = 
+getInt header = read . getString header
+
+
+getString :: Headers -> B.ByteString -> String
+getString headers name = 
     let x = Map.lookup name headers 
-        asInt = read . C8.unpack
     in case x of 
-        Just x -> asInt x
-        _ -> throw $ AssertionFailed $ "can't found key with " ++ (C8.unpack name)
+        Just x -> C8.unpack x
+        _ -> throw $ AssertionFailed $ "can't found key with " ++ C8.unpack name
 
 
 serverMain :: ServerAddress -> (Headers -> Content -> B.ByteString) -> IO ()
 serverMain address handle = do 
     print ("Start Servering in ", port address) 
     serve (Host $ ip address) (port address) $ \(connectionSocket, remoteAddr) -> do
-        {-maybe_msg <- recv connectionSocket -}
-        (remains, headers) <- (execPipeline $ httpReadHeader connectionSocket)::IO (B.ByteString, Headers)
         putStrLn $ "TCP connection established from " ++ show remoteAddr
+        (remains, headers) <- (execPipeline $ httpParserRequest connectionSocket)::IO (B.ByteString, Headers)
         let maybe_content_length = Map.lookup (fromString "Content-Length"::B.ByteString) headers
         let content_length = case maybe_content_length of 
                                 Just content -> byteString2Int content
-                                _            -> throw $ MyException "Content-Length Missing."
+                                _            -> 0
         (_, content) <- execPipeline $ do  
             resetBuffer remains
             httpReadNumber connectionSocket content_length
         let result = handle headers content
+        let len = C8.length result
+        send connectionSocket $ C8.pack "HTTP/1.1 200 OK\n\r"
+        send connectionSocket $ C8.pack ("Content-Length: " ++ show len ++ "\n\r\n\r")
         send connectionSocket result
