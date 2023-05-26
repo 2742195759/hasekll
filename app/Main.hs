@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE DisambiguateRecordFields #-}
 
 
 module Main (main) where
@@ -27,61 +26,51 @@ data PathRequest = PathRequest  {
 getReqContent :: PathRequest -> String
 getReqContent (PathRequest p a b) = b
 
-data EmptyRespond = EmptyRespond {
-      message :: String
-    } deriving (Generic, Show)
-
-data ContentRespond = ContentRespond {
-      message  :: String
-    , content  :: String
-    } deriving (Generic, Show)
-
-data FilesRespond = FilesRespond {
-      message  :: String
-    , filelist :: [String]
-    } deriving (Generic, Show)
+data PathRespond = EmptyRespond { message :: String }
+     | ContentRespond { message::String , text :: String }
+     | FilesRespond { message::String,  files::[String] }
+    deriving (Generic, Show)
 
 
-instance ToJSON EmptyRespond 
-instance FromJSON EmptyRespond 
-instance ToJSON ContentRespond 
-instance FromJSON ContentRespond 
-instance ToJSON FilesRespond 
-instance FromJSON FilesRespond 
+instance ToJSON PathRespond 
+instance FromJSON PathRespond 
 instance ToJSON PathRequest  
 instance FromJSON PathRequest
 
 
-pathFinder :: PathRequest -> IO FilesRespond
+pathFinder :: PathRequest -> IO PathRespond
 pathFinder request = 
     let _path = path request
         files = fmap (_path ++) <$> listDirectory _path
-    in (FilesRespond "success") <$> files
+    in FilesRespond "success" <$> files
 
 
-fetchFile :: PathRequest -> IO ContentRespond
+fetchFile :: PathRequest -> IO PathRespond
 fetchFile request = 
     let _path = path request
         contents = readFile _path
-    in (ContentRespond "success") <$> contents
+    in ContentRespond "success" <$> contents
 
 
-storeFile :: PathRequest -> IO EmptyRespond
+storeFile :: PathRequest -> IO PathRespond
 storeFile request = 
     let _path = path request
         content_str = getReqContent request
     in  writeFile _path content_str >> 
-        return $ EmptyRespond "success"
+        (return $ EmptyRespond "success")
 
 
-showRequest :: PathRequest -> IO EmptyRespond
+showRequest :: PathRequest -> IO PathRespond
 showRequest request = 
-    print (request) >> 
-    return $ EmptyRespond "success"
+        print request >> 
+        (return $ EmptyRespond "success")
 
-getRespond :: (ToJSON a) => String -> PathRequest -> IO a
+getRespond :: String -> PathRequest -> IO PathRespond
 getRespond cmd req = case cmd of 
         "ls" ->   pathFinder req
+        "fetch" -> fetchFile req
+        "store" -> storeFile req
+        "show"  -> showRequest req
         _     -> throw $ AssertionFailed "non-support command."
     
 
@@ -89,10 +78,12 @@ dispatcher :: TCPHandle
 dispatcher headers content = 
     let req = decode $ B.fromStrict content :: Maybe PathRequest
         maybe_cmd = do command <$> req
-        response =  case maybe_cmd of 
-            Just x     ->  getRespond x req
+        maybe_response =  case maybe_cmd of 
+            Just x     ->  (getRespond x) <$> req
             _  -> throw $ AssertionFailed "decode error."
-    in  (B.toStrict . encode) <$> response
+    in  case maybe_response of 
+            Just response -> B.toStrict . encode <$> response
+            _ -> throw $ AssertionFailed "decode error."
 
 
 ioWrapper :: (Headers -> Content -> B.ByteString) -> TCPHandle
