@@ -106,6 +106,9 @@ getString headers name =
 
 type TCPHandle = Headers -> Content -> IO B.ByteString
 
+ioWrapper :: (Headers -> Content -> B.ByteString) -> TCPHandle
+ioWrapper func headers content = return (func headers content) 
+
 serverMain :: ServerAddress -> (Headers -> Content -> IO B.ByteString) -> IO ()
 serverMain address handle = do 
     print ("Start Servering in ", port address) 

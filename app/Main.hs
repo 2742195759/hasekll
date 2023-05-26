@@ -23,8 +23,6 @@ data PathRequest = PathRequest  {
     , content  :: String
     } deriving (Generic, Show)
 
-getReqContent :: PathRequest -> String
-getReqContent (PathRequest p a b) = b
 
 data PathRespond = EmptyRespond { message :: String }
      | ContentRespond { message::String , text :: String }
@@ -55,7 +53,7 @@ fetchFile request =
 storeFile :: PathRequest -> IO PathRespond
 storeFile request = 
     let _path = path request
-        content_str = getReqContent request
+        PathRequest { content=content_str } = request
     in  writeFile _path content_str >> 
         (return $ EmptyRespond "success")
 
@@ -85,9 +83,6 @@ dispatcher headers content =
             Just response -> B.toStrict . encode <$> response
             _ -> throw $ AssertionFailed "decode error."
 
-
-ioWrapper :: (Headers -> Content -> B.ByteString) -> TCPHandle
-ioWrapper func headers content = return (func headers content) 
 
 
 serverAddress = ServerAddress "127.0.0.1" "10000"
